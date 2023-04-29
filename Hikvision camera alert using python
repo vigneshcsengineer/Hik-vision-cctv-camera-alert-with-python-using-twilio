@@ -1,0 +1,82 @@
+import cv2
+from twilio.rest import Client
+
+
+# Set up Twilio account credentials
+account_sid = 'your wilio sid'
+auth_token = 'your twilio token'
+client = Client(account_sid, auth_token)
+twilio_number = 'your twilio number'
+destination_number = '+91 ##########'
+
+# Create a VideoCapture object to read from camera
+cap = cv2.VideoCapture("rtsp://admin:Msfconsole1$@192.168.3.61:554/streaming/channels/102")
+
+# Initialize variables
+frame1 = None
+motion_detected = False
+
+while True:
+    # Read from camera
+    ret, frame2 = cap.read()
+
+    # If there's an error reading from camera, break loop
+    if not ret:
+        break
+
+    # Convert to grayscale and blur
+    gray = cv2.cvtColor(frame2, cv2.COLOR_BGR2GRAY)
+    gray = cv2.GaussianBlur(gray, (21, 21), 0)
+
+    # If there's no previous frame, set current frame as previous frame and continue loop
+    if frame1 is None:
+        frame1 = gray
+        continue
+
+    # Compute absolute difference between current and previous frame
+    frame_delta = cv2.absdiff(frame1, gray)
+
+    # Apply thresholding to eliminate noise and convert to binary image
+    thresh = cv2.threshold(frame_delta, 25, 255, cv2.THRESH_BINARY)[1]
+    thresh = cv2.dilate(thresh, None, iterations=2)
+
+    # Find contours in the binary image
+    contours, _ = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # Loop over contours
+    for contour in contours:
+        # If contour area is too small, ignore it
+        if cv2.contourArea(contour) < 1000:
+            continue
+
+        # Draw a bounding box around the contour and mark motion detected
+        (x, y, w, h) = cv2.boundingRect(contour)
+        cv2.rectangle(frame2, (x, y), (x + w, y + h), (0, 0, 255), 2)
+        motion_detected = True
+
+    # Display current frame and motion detection status
+    cv2.imshow("RTSP", frame2)
+    cv2.imshow("Thresh", thresh)
+    key = cv2.waitKey(1) & 0xFF
+
+    # If 'q' is pressed, break loop
+    if key == ord("q"):
+        break
+
+    # If motion detected, send an SMS alert
+    if motion_detected:
+        print("Motion detected!")
+        message = client.messages.create(
+            body='Motion detected!',
+            from_=twilio_number,
+            to=destination_number
+        )
+        print(message.sid)
+        motion_detected = False
+
+    # Set current frame as previous frame for next iteration
+    frame1 = gray
+
+# Release VideoCapture object and close windows
+cap.release()
+cv2.destroyAllWindows()
